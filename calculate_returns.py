@@ -10,6 +10,9 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Table, TableStyle
 from reportlab.lib import colors
 import numpy as np
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
 
 def get_returns(ticker, year):
     start_date = f"{year-1}-12-01"
@@ -30,35 +33,41 @@ def get_returns(ticker, year):
     yearly_return = data['Adj Close'].iloc[-1] / data['Adj Close'].iloc[0] - 1
     return monthly_returns, yearly_return
 
-def create_pdf(pdf_path, table_data):
-    c = canvas.Canvas(pdf_path, pagesize=letter)
-    width, height = letter  # Get the dimensions of the page
-    
-    # Cumulative Returns
-    image = ImageReader("data/cumulative_returns.png")
-    c.drawImage(image, 50, height - 350, width=500, height=300)  # Adjust the position and size as needed
+def create_pdf(pdf_path, table_data, stock_details_top_brands, stock_details_most_improved_exact, stock_details_most_improved_weighted):
+    doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+    story = []
+    styles = getSampleStyleSheet()
 
-    # Yearly Returns
-    image = ImageReader("data/yearly_returns.png")
-    c.drawImage(image, 50, height - 700, width=500, height=300)  # Adjust the position and size as needed
+    # Add cumulative and yearly returns images
+    story.append(Paragraph('<b>Cumulative Returns</b>', styles['Heading2']))
+    story.append(Image('data/cumulative_returns.png', 6*inch, 3*inch))  # Adjust dimensions as needed
+    story.append(Spacer(1, 12))
 
-    # Net Returns and Sharpe Ratios
-    table_style = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('ALIGN',(0,0),(-1,-1),'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND',(0,1),(-1,-1),colors.beige),
-        ('GRID',(0,0),(-1,-1),1,colors.black)
-    ])
-    table = Table(table_data, colWidths=[width/len(table_data[0])] * len(table_data[0]), hAlign='LEFT')
-    table.setStyle(table_style)
-    
-    table.wrapOn(c, width, height)
-    table.drawOn(c, 30, height - 800)  # Adjust as needed
+    story.append(Paragraph('<b>Yearly Returns</b>', styles['Heading2']))
+    story.append(Image('data/yearly_returns.png', 6*inch, 3*inch))  # Adjust dimensions as needed
+    story.append(Spacer(1, 12))
 
-    c.save()
+    # Add net returns and Sharpe Ratios table
+    story.append(Paragraph('<b>Net Returns and Sharpe Ratios</b>', styles['Heading2']))
+    table = Table(table_data, colWidths=[2.5*inch]*len(table_data[0]))
+    story.append(table)
+    story.append(Spacer(1, 12))
+
+    # Function to add stock details to the story
+    def add_stock_details_to_story(strategy_name, stock_details):
+        story.append(Paragraph(f'<b>{strategy_name} Strategy</b>', styles['Heading2']))
+        for year, stocks in stock_details.items():
+            story.append(Paragraph(f'Year {year}', styles['Heading3']))
+            for ticker, return_val in stocks:
+                story.append(Paragraph(f'{ticker}: {return_val:.2%}', styles['Normal']))
+            story.append(Spacer(1, 12))
+
+    # Add stock details for each strategy
+    add_stock_details_to_story('Top Brands', stock_details_top_brands)
+    add_stock_details_to_story('Most Improved Brands (Exact)', stock_details_most_improved_exact)
+    add_stock_details_to_story('Most Improved Brands (Weighted)', stock_details_most_improved_weighted)
+
+    doc.build(story)
 
 def calculate_performance_metrics(monthly_returns):
     # Assuming monthly_returns is a list of monthly returns
@@ -120,6 +129,8 @@ def load_brand_rankings(year, rankings_directory, most_improved=False, weighted=
 def calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands, most_improved=False, weighted=False):
     monthly_returns = {}
     yearly_returns = {}
+    stock_details = {}
+
     for year in range(start_year, end_year + 1):
         brands = load_brand_rankings(year, rankings_directory, most_improved, weighted, number_of_brands)
         tickers = [ticker_mapping.get(brand) for brand in brands if (ticker_mapping.get(brand, 'N/A') != 'N/A' and not (type(ticker_mapping.get(brand))==float and math.isnan(ticker_mapping.get(brand))))]
@@ -131,7 +142,16 @@ def calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_
         average_monthly_returns = [sum(month) / len(month) for month in zip(*all_returns)]
         monthly_returns[year] = average_monthly_returns
         yearly_returns[year] = avg_yearly_return
-    return monthly_returns, yearly_returns
+
+        year_stock_details = []
+        for ticker in tickers:
+            if ticker is not None:
+                m_returns, y_return = get_returns(ticker, year)
+                year_stock_details.append((ticker, y_return))
+        
+        stock_details[year] = year_stock_details
+
+    return monthly_returns, yearly_returns, stock_details
 
 def get_market_monthly_returns(index_ticker, start_year, end_year):
     market_returns = {}
@@ -213,11 +233,11 @@ def main(rankings_directory, start_year=2022, end_year=2022, calculate_top_brand
     ticker_mapping = load_ticker_mapping('BrandData/CompanyToTicker_with_tickers.xlsx')
     
     if calculate_top_brands:
-        top_brand_monthly_returns, top_brand_yearly_returns = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands)
+        top_brand_monthly_returns, top_brand_yearly_returns, top_brand_stock_details = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands)
     if calculate_most_improved_exact:
-        most_improved_monthly_returns_exact, most_improved_yearly_returns_exact = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands, most_improved=True, weighted=False)
+        most_improved_monthly_returns_exact, most_improved_yearly_returns_exact, most_improved_exact_stock_details = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands, most_improved=True, weighted=False)
     if calculate_most_improved_weighted:
-        most_improved_monthly_returns_weighted, most_improved_yearly_returns_weighted = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands, most_improved=True, weighted=True)
+        most_improved_monthly_returns_weighted, most_improved_yearly_returns_weighted, most_improved_weighted_stock_details = calculate_returns_for_brands(ticker_mapping, start_year, end_year, rankings_directory, number_of_brands, most_improved=True, weighted=True)
     if calculate_market:
         market_monthly_returns, market_yearly_returns = get_market_monthly_returns('^GSPC', start_year, end_year)
 
@@ -283,8 +303,8 @@ def main(rankings_directory, start_year=2022, end_year=2022, calculate_top_brand
     plot_cumulative_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year)
     table_data = table_net_returns_and_sharpe_ratios(annualized_return_top_brands, annualized_return_most_improved_exact, annualized_return_most_improved_weighted, annualized_return_market, net_sharpe_ratio_top_brands, net_sharpe_ratio_most_improved_exact, net_sharpe_ratio_most_improved_weighted, net_sharpe_ratio_market)
     pdf_path = 'data/analysis_report.pdf'
-    create_pdf(pdf_path, table_data)
+    create_pdf(pdf_path, table_data, top_brand_stock_details, most_improved_exact_stock_details, most_improved_weighted_stock_details)
 
 if __name__ == "__main__":
     rankings_directory = 'BrandData'
-    main(rankings_directory, start_year=2017, end_year=2022, calculate_top_brands=True, calculate_most_improved_exact=True, calculate_most_improved_weighted=True, calculate_market=True, number_of_brands=10)
+    main(rankings_directory, start_year=2015, end_year=2023, calculate_top_brands=True, calculate_most_improved_exact=True, calculate_most_improved_weighted=True, calculate_market=True, number_of_brands=20)

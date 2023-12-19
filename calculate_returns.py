@@ -4,6 +4,12 @@ from datetime import datetime
 import math
 from scipy.stats import mstats
 import matplotlib.pyplot as plt
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Table, TableStyle
+from reportlab.lib import colors
+import numpy as np
 
 def get_returns(ticker, year):
     start_date = f"{year-1}-12-01"
@@ -23,6 +29,36 @@ def get_returns(ticker, year):
 
     yearly_return = data['Adj Close'].iloc[-1] / data['Adj Close'].iloc[0] - 1
     return monthly_returns, yearly_return
+
+def create_pdf(pdf_path, table_data):
+    c = canvas.Canvas(pdf_path, pagesize=letter)
+    width, height = letter  # Get the dimensions of the page
+    
+    # Cumulative Returns
+    image = ImageReader("data/cumulative_returns.png")
+    c.drawImage(image, 50, height - 350, width=500, height=300)  # Adjust the position and size as needed
+
+    # Yearly Returns
+    image = ImageReader("data/yearly_returns.png")
+    c.drawImage(image, 50, height - 700, width=500, height=300)  # Adjust the position and size as needed
+
+    # Net Returns and Sharpe Ratios
+    table_style = TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND',(0,1),(-1,-1),colors.beige),
+        ('GRID',(0,0),(-1,-1),1,colors.black)
+    ])
+    table = Table(table_data, colWidths=[width/len(table_data[0])] * len(table_data[0]), hAlign='LEFT')
+    table.setStyle(table_style)
+    
+    table.wrapOn(c, width, height)
+    table.drawOn(c, 30, height - 800)  # Adjust as needed
+
+    c.save()
 
 def calculate_performance_metrics(monthly_returns):
     # Assuming monthly_returns is a list of monthly returns
@@ -104,9 +140,9 @@ def get_market_monthly_returns(index_ticker, start_year, end_year):
         market_returns[year], market_yearly_returns[year] = get_returns(index_ticker, year)
     return market_returns, market_yearly_returns
 
-def plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year):
+def plot_cumulative_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year):
+    plt.clf()
     # Plot the cumulative returns over time from yearly returns.
-    # Calculate the cumulative returns
     cumulative_returns_top_brands, cumulative_returns_most_improved_exact, cumulative_returns_most_improved_weighted, cumulative_returns_market = [1], [1], [1], [1]
     for i in range(len(total_yearly_returns_market)):
         cumulative_returns_top_brands.append(cumulative_returns_top_brands[-1] * (1 + total_yearly_returns_top_brands[i]))
@@ -115,6 +151,7 @@ def plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_mo
         cumulative_returns_market.append(cumulative_returns_market[-1] * (1 + total_yearly_returns_market[i]))
 
     # Plot the cumulative returns
+    print(f'Cumulative Returns: {cumulative_returns_top_brands}')
     plt.plot(cumulative_returns_top_brands, label='Top Brands')
     plt.plot(cumulative_returns_most_improved_exact, label='Most Improved Brands (Exact)')
     plt.plot(cumulative_returns_most_improved_weighted, label='Most Improved Brands (Weighted)')
@@ -128,7 +165,49 @@ def plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_mo
     plt.xticks(range(len(total_yearly_returns_market)+1), range(start_year-1, end_year+1))
     
     plt.legend()
-    plt.show()
+    plt.savefig('data/cumulative_returns.png', format='png')
+
+def plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year):
+    # Reset the plot
+    plt.clf()
+
+    # Number of groups (years)
+    num_groups = len(total_yearly_returns_market)
+
+    # Positions for the bars on the x-axis
+    bar_width = 0.2
+    index = np.arange(num_groups)
+
+    # Plot each strategy
+    plt.bar(index, total_yearly_returns_top_brands, bar_width, label='Top Brands')
+    plt.bar(index + bar_width, total_yearly_returns_most_improved_exact, bar_width, label='Most Improved Brands (Exact)')
+    plt.bar(index + 2 * bar_width, total_yearly_returns_most_improved_weighted, bar_width, label='Most Improved Brands (Weighted)')
+    plt.bar(index + 3 * bar_width, total_yearly_returns_market, bar_width, label='S&P 500 Market')
+
+    # Add labels and legend
+    plt.xlabel('Year')
+    plt.ylabel('Yearly Returns')
+    plt.title('Yearly Returns by Strategy')
+    plt.xticks(index + bar_width, range(start_year, end_year + 1))
+    plt.legend()
+
+    # Save the figure
+    plt.savefig('data/yearly_returns.png', format='png')
+
+def table_net_returns_and_sharpe_ratios(annualized_return_top_brands, annualized_return_most_improved_exact, annualized_return_most_improved_weighted, annualized_return_market, net_sharpe_ratio_top_brands, net_sharpe_ratio_most_improved_exact, net_sharpe_ratio_most_improved_weighted, net_sharpe_ratio_market):
+    # Create a table with the net returns and Sharpe Ratios
+    table_data = [
+        ['Top Brands', annualized_return_top_brands, net_sharpe_ratio_top_brands],
+        ['Most Improved Brands (Exact)', annualized_return_most_improved_exact, net_sharpe_ratio_most_improved_exact],
+        ['Most Improved Brands (Weighted)', annualized_return_most_improved_weighted, net_sharpe_ratio_most_improved_weighted],
+        ['S&P 500 Market', annualized_return_market, net_sharpe_ratio_market]
+    ]
+    table = pd.DataFrame(table_data, columns=['', 'Annualized Return', 'Net Sharpe Ratio'])
+    table_data = table.values.tolist()
+    # Add header row
+    header = table.columns.to_list()
+    table_data.insert(0, header)
+    return table_data
 
 def main(rankings_directory, start_year=2022, end_year=2022, calculate_top_brands=True, calculate_most_improved_exact=True, calculate_most_improved_weighted=True, calculate_market=True, number_of_brands=10):
     ticker_mapping = load_ticker_mapping('BrandData/CompanyToTicker_with_tickers.xlsx')
@@ -172,7 +251,7 @@ def main(rankings_directory, start_year=2022, end_year=2022, calculate_top_brand
             total_yearly_returns_market.append(market_yearly_returns.get(year, []))
             print(f"S&P 500 Market Sharpe Ratio: {market_metrics.get('sharpe_ratio', 'N/A')}, Yearly returns: {market_yearly_returns.get(year, [])}")
 
-    plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year)
+
     print("-"*50)
 
     if calculate_top_brands:
@@ -199,6 +278,13 @@ def main(rankings_directory, start_year=2022, end_year=2022, calculate_top_brand
         net_sharpe_ratio_market = calculate_performance_metrics(total_monthly_returns_market)['sharpe_ratio']
         print(f"Net Sharpe Ratio for S&P 500 Market: {net_sharpe_ratio_market}, Annualized returns: {annualized_return_market}")
 
+    plot_yearly_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year)
+
+    plot_cumulative_returns(total_yearly_returns_top_brands, total_yearly_returns_most_improved_exact, total_yearly_returns_most_improved_weighted, total_yearly_returns_market, start_year, end_year)
+    table_data = table_net_returns_and_sharpe_ratios(annualized_return_top_brands, annualized_return_most_improved_exact, annualized_return_most_improved_weighted, annualized_return_market, net_sharpe_ratio_top_brands, net_sharpe_ratio_most_improved_exact, net_sharpe_ratio_most_improved_weighted, net_sharpe_ratio_market)
+    pdf_path = 'data/analysis_report.pdf'
+    create_pdf(pdf_path, table_data)
+
 if __name__ == "__main__":
     rankings_directory = 'BrandData'
-    main(rankings_directory, start_year=2015, end_year=2022, calculate_top_brands=True, calculate_most_improved_exact=True, calculate_most_improved_weighted=True, calculate_market=True, number_of_brands=10)
+    main(rankings_directory, start_year=2017, end_year=2022, calculate_top_brands=True, calculate_most_improved_exact=True, calculate_most_improved_weighted=True, calculate_market=True, number_of_brands=10)

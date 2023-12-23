@@ -41,7 +41,7 @@ def find_stock_tickers(file_path):
 
     # Save the updated dataframe back to Excel
     updated_file_path = file_path.replace('.csv', '_with_tickers.csv')
-    df.to_excel(updated_file_path, index=False)
+    df.to_csv(updated_file_path, index=False)
     return updated_file_path
 
 # Call the function with the path to your Excel file
